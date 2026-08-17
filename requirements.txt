@@ -2,8 +2,9 @@ pandas
 scikit-learn
 xgboost
 pulp
-fastapi
-uvicorn
 streamlit
 pytest
 requests
+fastapi
+uvicorn
+httpx
