@@ -111,33 +111,49 @@ def evaluate(results_df: pd.DataFrame) -> dict:
     }
 
 
-if __name__ == "__main__":
-    print("Checking API is reachable...")
+def api_is_reachable() -> bool:
     try:
         requests.get(f"{API_BASE}/health", timeout=5).raise_for_status()
-    except Exception as e:
-        print(f"ERROR: API not reachable at {API_BASE}. "
-            f"Start it first with: python -m uvicorn api.main:app --port 8000")
-        sys.exit(1)
+        return True
+    except Exception:
+        return False
 
+
+def run_full_loop(max_budget: float = DEFAULT_MAX_BUDGET) -> tuple[pd.DataFrame, dict]:
+    """
+    Runs the entire predict -> recommend -> log -> simulate -> evaluate
+    pipeline end to end and returns (results_df, summary_dict). This is
+    the function the Streamlit dashboard calls when the user clicks
+    "Run Pipeline Now" — same logic as running this file directly.
+    """
     df = pd.read_csv(DATA_PATH)
     model = load_trained_model()
 
-    print("Running batch predictions + recommendations...")
-    results = run_batch(df, model, max_budget=DEFAULT_MAX_BUDGET)
-
-    at_risk_count = results["likely_delayed"].sum()
-    print(f"Logging {at_risk_count} at-risk decisions to the write-back API...")
+    results = run_batch(df, model, max_budget=max_budget)
     results = log_decisions(results)
-
-    print("Simulating and recording outcomes (closing the loop)...")
     results = simulate_and_record_outcomes(results)
-
     summary = evaluate(results)
+
+    output_path = os.path.join(os.path.dirname(__file__), "..", "data", "closed_loop_results.csv")
+    results.to_csv(output_path, index=False)
+
+    return results, summary
+
+
+if __name__ == "__main__":
+    print("Checking API is reachable...")
+    if not api_is_reachable():
+        print(f"ERROR: API not reachable at {API_BASE}. "
+              f"Start it first with: python -m uvicorn api.main:app --port 8000")
+        sys.exit(1)
+
+    print("Running batch predictions + recommendations...")
+    print("Logging at-risk decisions to the write-back API...")
+    print("Simulating and recording outcomes (closing the loop)...")
+    results, summary = run_full_loop()
+
     print("\n--- Closed-Loop Evaluation ---")
     for k, v in summary.items():
         print(f"  {k}: {v}")
 
-    output_path = os.path.join(os.path.dirname(__file__), "..", "data", "closed_loop_results.csv")
-    results.to_csv(output_path, index=False)
-    print(f"\nFull results saved to {output_path}")
+    print(f"\nFull results saved to data/closed_loop_results.csv")
